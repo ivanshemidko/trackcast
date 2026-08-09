@@ -3,9 +3,7 @@ package io.github.ivanshemidko.format;
 import io.github.ivanshemidko.spotify.Track;
 
 import java.util.Arrays;
-
 import static java.lang.Math.max;
-import static java.lang.Math.min;
 
 public class PostFormatter {
     private static final int INDENT = 6;
@@ -24,7 +22,6 @@ public class PostFormatter {
         String linkLabel = (artists + " – " + track.name()).toLowerCase();
 
         String alignedLinkLabel = truncate(linkLabel);
-        System.out.println("|" + alignedLinkLabel + "|");
         String trackData = "<a href=\"" + track.spotifyUrl() + "\">" + escapeHtml(alignedLinkLabel) + "</a>";
         String body = FIRST_STRING + "\n" + spaces(INDENT) + trackData;
 
@@ -32,9 +29,6 @@ public class PostFormatter {
                 FIRST_STRING.length(),
                 Arrays.stream(alignedLinkLabel.split("\n")).mapToInt(String::length).max().orElse(0)
         );
-        System.out.println(FIRST_STRING + "|" + FIRST_STRING.length());
-        System.out.println(Arrays.toString(alignedLinkLabel.split("\n")));
-        System.out.println(widthInSpaces);
         widthInSpaces *= SPACE_TO_CHAR_COEFFICIENT;
         String top = TOP_LEFT + spaces(widthInSpaces) + TOP_RIGHT;
         String bottom = BOTTOM_LEFT + spaces(widthInSpaces) + BOTTOM_RIGHT;
