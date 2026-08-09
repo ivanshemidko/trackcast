@@ -76,7 +76,6 @@ public class SpotifyClient {
         String id = trackNode.get("id").asText();
 
         String name = trackNode.get("name").asText();
-        System.out.println(name);
 
         List<String> artists = new ArrayList<>();
         for (JsonNode artist : trackNode.get("artists")) {
