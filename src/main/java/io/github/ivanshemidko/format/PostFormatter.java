@@ -8,7 +8,7 @@ import static java.lang.Math.max;
 public class PostFormatter {
     private static final int INDENT = 6;
     private static final int MAX_STRING_SIZE = 28;
-    private static final double SPACE_TO_CHAR_COEFFICIENT = 2.38;
+    private static final double SPACE_TO_CHAR_COEFFICIENT = 2.3;
     private static final String FIRST_STRING = spaces(INDENT + 1) + "listen to";
 
     // premium emoji doesn't work: restriction of telegram api
