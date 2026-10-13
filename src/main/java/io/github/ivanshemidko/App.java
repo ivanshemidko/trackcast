@@ -19,7 +19,7 @@ import java.util.Map;
 
 public class App {
 
-    private static final long POLL_INTERVAL_MS = 120_000;
+    private static final long POLL_INTERVAL_MS = 60_000 * 30;
 
     public static void main(String[] args) throws Exception {
         Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
