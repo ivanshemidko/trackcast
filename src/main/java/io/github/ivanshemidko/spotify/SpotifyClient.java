@@ -24,6 +24,7 @@ public class SpotifyClient {
     private final String apiBase;
     private final SpotifyAuth auth;
     private final HttpClient http;
+    private final SpotifyRateLimit rateLimit;
     private final Path cacheFile;
     private final ObjectMapper mapper = new ObjectMapper();
     private CachedPlaylist cached;
@@ -48,6 +49,7 @@ public class SpotifyClient {
         this.auth = auth;
         this.http = http;
         this.cacheFile = cacheFile;
+        this.rateLimit = auth == null ? new SpotifyRateLimit() : auth.rateLimit();
         if (cacheFile != null && Files.exists(cacheFile)) {
             try {
                 CachedPlaylist saved = mapper.readValue(cacheFile.toFile(), CachedPlaylist.class);
@@ -69,6 +71,7 @@ public class SpotifyClient {
         requestCount = 0;
         String snapshot = snapshot(playlistId);
         if (cached != null && playlistId.equals(cached.playlistId()) && snapshot.equals(cached.snapshot())) {
+            rateLimit.succeeded();
             System.out.println("Spotify playlist unchanged; reused cache (" + requestCount + " API request)");
             return cached.tracks();
         }
@@ -107,6 +110,7 @@ public class SpotifyClient {
         CachedPlaylist next = new CachedPlaylist(playlistId, snapshot, List.copyOf(allTracks));
         saveCache(next);
         cached = next;
+        rateLimit.succeeded();
         System.out.println("Spotify playlist loaded: " + allTracks.size() + " entries (" + requestCount + " API requests)");
         return next.tracks();
     }
@@ -141,6 +145,7 @@ public class SpotifyClient {
     }
 
     private JsonNode fetch(String url) throws IOException, InterruptedException {
+        rateLimit.beforeRequest();
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Authorization", "Bearer " + auth.getAccessToken())
@@ -151,6 +156,7 @@ public class SpotifyClient {
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
         requestCount++;
 
+        if (response.statusCode() == 429) throw rateLimit.limited(response.headers());
         if (response.statusCode() != 200) {
             if (response.statusCode() == 401) auth.invalidateAccessToken();
             throw new IOException("Spotify API error: " + response.statusCode() + " " + response.body());

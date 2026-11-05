@@ -5,6 +5,7 @@ import io.github.ivanshemidko.client.TelegramClient;
 import io.github.ivanshemidko.format.PostFormatter;
 import io.github.ivanshemidko.spotify.SpotifyAuth;
 import io.github.ivanshemidko.spotify.SpotifyClient;
+import io.github.ivanshemidko.spotify.SpotifyRateLimit;
 import io.github.ivanshemidko.spotify.Track;
 import io.github.ivanshemidko.spotify.TrackWithCount;
 import io.github.ivanshemidko.state.StateManager;
@@ -47,7 +48,9 @@ public class App {
             try { processLock.release(); lockChannel.close(); } catch (java.io.IOException ignored) {}
         }));
 
-        SpotifyAuth auth = new SpotifyAuth(spotifyClientId, spotifyClientSecret, spotifyRedirectUri, dataDir.resolve("spotify_token.json"));
+        SpotifyRateLimit rateLimit = new SpotifyRateLimit(dataDir.resolve("spotify_rate_limit.json"));
+        SpotifyAuth auth = new SpotifyAuth(spotifyClientId, spotifyClientSecret, spotifyRedirectUri,
+                dataDir.resolve("spotify_token.json"), rateLimit);
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
         SpotifyClient spotify = new SpotifyClient(auth, http, dataDir.resolve("spotify_playlist_cache.json"));
         TelegramClient telegram = new TelegramClient(telegramBotToken, telegramChatId);
@@ -62,15 +65,23 @@ public class App {
         }
 
         while (true) {
+            long nextPollDelayMs = pollIntervalMs;
             try {
                 pollOnce(spotify, telegram, stateManager, playlistId);
                 System.out.println(java.time.Instant.now() + " Poll completed");
             } catch (UncheckedIOException e) {
                 throw e;
+            } catch (SpotifyRateLimit.RateLimitedException e) {
+                nextPollDelayMs = Math.max(pollIntervalMs,
+                        Duration.between(java.time.Instant.now(), e.retryAt()).toMillis());
+                System.err.println(e.getMessage() + "; next poll in " + nextPollDelayMs / 1000 + " seconds");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             } catch (Exception e) {
                 System.err.println("Poll cycle failed: " + e.getMessage());
             }
-            Thread.sleep(pollIntervalMs);
+            Thread.sleep(nextPollDelayMs);
         }
     }
 

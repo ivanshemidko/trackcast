@@ -40,22 +40,31 @@ public class SpotifyAuth {
     private final URI redirectUri;
     private final Path tokenFile;
     private final HttpClient http;
+    private final SpotifyRateLimit rateLimit;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private String cachedAccessToken;
     private Instant accessTokenExpiresAt = Instant.EPOCH;
 
     public SpotifyAuth(String clientId, String clientSecret, String redirectUri, Path tokenFile) {
+        this(clientId, clientSecret, redirectUri, tokenFile, new SpotifyRateLimit());
+    }
+
+    public SpotifyAuth(String clientId, String clientSecret, String redirectUri, Path tokenFile,
+                       SpotifyRateLimit rateLimit) {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.redirectUri = URI.create(redirectUri);
         this.tokenFile = tokenFile;
+        this.rateLimit = rateLimit;
         this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
     }
 
     public void invalidateAccessToken() { cachedAccessToken = null; }
+    SpotifyRateLimit rateLimit() { return rateLimit; }
 
     public String getAccessToken() throws IOException, InterruptedException {
+        rateLimit.beforeRequest();
         if (cachedAccessToken != null && Instant.now().isBefore(accessTokenExpiresAt)) {
             return cachedAccessToken;
         }
@@ -168,6 +177,7 @@ public class SpotifyAuth {
     }
 
     private JsonNode postForm(String formBody) throws IOException, InterruptedException {
+        rateLimit.beforeRequest();
         String basicAuth = Base64.getEncoder()
                 .encodeToString((clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
 
@@ -180,6 +190,8 @@ public class SpotifyAuth {
                 .build();
 
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 429) throw rateLimit.limited(response.headers());
 
         if (response.statusCode() != 200) {
             throw new IOException("Spotify token error: " + response.statusCode() + " " + response.body());

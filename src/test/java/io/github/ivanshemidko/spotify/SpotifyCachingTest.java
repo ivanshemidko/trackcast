@@ -38,8 +38,9 @@ class SpotifyCachingTest {
             });
             server.start();
         }
-        SpotifyClient client() {
-            var auth = new SpotifyAuth("", "", "http://127.0.0.1:8888/callback", dir.resolve("token.json")) {
+        SpotifyClient client() { return client(new SpotifyRateLimit()); }
+        SpotifyClient client(SpotifyRateLimit limiter) {
+            var auth = new SpotifyAuth("", "", "http://127.0.0.1:8888/callback", dir.resolve("token.json"), limiter) {
                 @Override public String getAccessToken() { return "test"; }
             };
             return new SpotifyClient(auth, HttpClient.newHttpClient(),
@@ -98,6 +99,32 @@ class SpotifyCachingTest {
             assertEquals(3, api.requests.size());
             assertEquals(1, api.client().getTracks("p").size());
             assertEquals(4, api.requests.size());
+        }
+    }
+    @Test void rateLimitStopsAllRequestsEvenAfterRestart() throws Exception {
+        Path rateFile = dir.resolve("rate.json");
+        try (var api = new MockSpotify()) {
+            api.handler = url -> new Reply(429, "Too many requests", "86400");
+            var client = api.client(new SpotifyRateLimit(rateFile));
+            assertThrows(SpotifyRateLimit.RateLimitedException.class, () -> client.getTracks("p"));
+            assertEquals(1, api.requests.size());
+            assertThrows(SpotifyRateLimit.RateLimitedException.class, () -> client.getTracks("p"));
+            var restarted = api.client(new SpotifyRateLimit(rateFile));
+            assertThrows(SpotifyRateLimit.RateLimitedException.class, () -> restarted.getTracks("p"));
+            assertEquals(1, api.requests.size());
+            assertFalse(Files.exists(dir.resolve("cache.json")));
+        }
+    }
+    @Test void rateLimitDuringPaginationDoesNotReturnStalePlaylist() throws Exception {
+        try (var api = new MockSpotify()) {
+            var client = api.client();
+            client.getTracks("p");
+            api.handler = url -> url.contains("/items?") ? new Reply(429, "limited", "7200")
+                    : new Reply(SNAPSHOT.replace("s1", "s2"));
+            assertThrows(SpotifyRateLimit.RateLimitedException.class, () -> client.getTracks("p"));
+            assertEquals(5, api.requests.size());
+            assertThrows(SpotifyRateLimit.RateLimitedException.class, () -> client.getTracks("p"));
+            assertEquals(5, api.requests.size());
         }
     }
 }

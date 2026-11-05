@@ -6,6 +6,7 @@
 # Local Data & State
 spotify_token.json
 spotify_playlist_cache.json
+spotify_rate_limit.json
 playlist_state.json
 
 # Build & IDE
