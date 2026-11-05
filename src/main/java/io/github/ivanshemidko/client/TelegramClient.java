@@ -33,18 +33,7 @@ public class TelegramClient {
     public long sendMessage(String text) throws IOException, InterruptedException {
         String url = "https://api.telegram.org/bot" + botToken + "/sendMessage";
 
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("chat_id", chatId);
-        payload.put("text", text);
-        payload.put("parse_mode", "HTML");
-
-        String previewUrl = extractFirstUrl(text);
-        if (previewUrl != null) {
-            payload.put("link_preview_options", Map.of(
-                    "url", previewUrl,
-                    "prefer_small_media", true
-            ));
-        }
+        Map<String, Object> payload = messagePayload(chatId, text);
 
         String body = mapper.writeValueAsString(payload);
 
@@ -66,7 +55,25 @@ public class TelegramClient {
             throw new IOException("Telegram API returned ok=false: " + response.body());
         }
 
-        return json.get("result").get("message_id").asLong();  // ← было void, теперь возвращаем id
+        return json.get("result").get("message_id").asLong();
+    }
+
+    static Map<String, Object> messagePayload(String chatId, String text) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("chat_id", chatId);
+        payload.put("text", text);
+        payload.put("parse_mode", "HTML");
+
+        String previewUrl = extractFirstUrl(text);
+        if (previewUrl != null) {
+            payload.put("link_preview_options", Map.of(
+                    "url", previewUrl,
+                    "prefer_small_media", true,
+                    "show_above_text", false
+            ));
+        }
+
+        return payload;
     }
 
     public void deleteMessage(long messageId) throws IOException, InterruptedException {
