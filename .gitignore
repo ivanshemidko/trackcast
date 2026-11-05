@@ -16,3 +16,8 @@ target/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Persistent container data and process lock
+data/
+trackcast.lock
+dependency-reduced-pom.xml
