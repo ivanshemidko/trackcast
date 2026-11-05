@@ -53,6 +53,8 @@ public class SpotifyAuth {
         this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
     }
 
+    public void invalidateAccessToken() { cachedAccessToken = null; }
+
     public String getAccessToken() throws IOException, InterruptedException {
         if (cachedAccessToken != null && Instant.now().isBefore(accessTokenExpiresAt)) {
             return cachedAccessToken;
@@ -173,6 +175,7 @@ public class SpotifyAuth {
                 .uri(URI.create(TOKEN_URL))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("Authorization", "Basic " + basicAuth)
+                .timeout(Duration.ofSeconds(20))
                 .POST(HttpRequest.BodyPublishers.ofString(formBody, StandardCharsets.UTF_8))
                 .build();
 
@@ -211,8 +214,17 @@ public class SpotifyAuth {
 
     private void saveRefreshToken(String refreshToken) throws IOException {
         String json = mapper.createObjectNode().put("refresh_token", refreshToken).toString();
-        Files.writeString(tokenFile, json, StandardCharsets.UTF_8);
-        restrictFilePermissions();
+        Path parent = tokenFile.toAbsolutePath().getParent();
+        Files.createDirectories(parent);
+        Path temp = Files.createTempFile(parent, ".spotify-", ".tmp");
+        try {
+            Files.writeString(temp, json, StandardCharsets.UTF_8);
+            Files.move(temp, tokenFile, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            restrictFilePermissions();
+        } finally {
+            Files.deleteIfExists(temp);
+        }
     }
 
     private void restrictFilePermissions() {

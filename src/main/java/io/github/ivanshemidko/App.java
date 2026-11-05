@@ -12,14 +12,16 @@ import io.github.ivanshemidko.state.StateManager;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.io.UncheckedIOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class App {
 
-    private static final long POLL_INTERVAL_MS = 60_000 * 30;
 
     public static void main(String[] args) throws Exception {
         Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
@@ -30,25 +32,49 @@ public class App {
         String spotifyClientSecret = requireEnv(dotenv, "SPOTIFY_CLIENT_SECRET");
         String spotifyRedirectUri = dotenv.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback");
         String playlistId = requireEnv(dotenv, "SPOTIFY_PLAYLIST_ID");
+        long pollIntervalMs = Long.parseLong(dotenv.get("POLL_INTERVAL_SECONDS", "1800")) * 1000;
+        if (pollIntervalMs < 1000) throw new IllegalArgumentException("POLL_INTERVAL_SECONDS must be positive");
 
-        SpotifyAuth auth = new SpotifyAuth(spotifyClientId, spotifyClientSecret, spotifyRedirectUri, Path.of("spotify_token.json"));
+        Path dataDir = Path.of(dotenv.get("DATA_DIR", "."));
+        Files.createDirectories(dataDir);
+        // Held for the process lifetime: two workers must not post for the same state.
+        FileChannel lockChannel = FileChannel.open(dataDir.resolve("trackcast.lock"),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+        var processLock = lockChannel.tryLock();
+        if (processLock == null) throw new IllegalStateException("Another Trackcast instance is running");
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try { processLock.release(); lockChannel.close(); } catch (java.io.IOException ignored) {}
+        }));
+
+        SpotifyAuth auth = new SpotifyAuth(spotifyClientId, spotifyClientSecret, spotifyRedirectUri, dataDir.resolve("spotify_token.json"));
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
         SpotifyClient spotify = new SpotifyClient(auth, http);
         TelegramClient telegram = new TelegramClient(telegramBotToken, telegramChatId);
-        StateManager stateManager = new StateManager();
+        StateManager stateManager = new StateManager(dataDir.resolve("playlist_state.json"));
         stateManager.loadState();
+
+        if (java.util.Arrays.asList(args).contains("--check")) {
+            List<Track> tracks = spotify.getTracks(playlistId);
+            System.out.println("Check OK: " + tracks.size() + " playlist entries; "
+                    + groupByTrackId(tracks).size() + " unique tracks. No Telegram changes made.");
+            return;
+        }
 
         while (true) {
             try {
                 pollOnce(spotify, telegram, stateManager, playlistId);
+                System.out.println(java.time.Instant.now() + " Poll completed");
+            } catch (UncheckedIOException e) {
+                throw e;
             } catch (Exception e) {
                 System.err.println("Poll cycle failed: " + e.getMessage());
             }
-            Thread.sleep(POLL_INTERVAL_MS);
+            Thread.sleep(pollIntervalMs);
         }
     }
 
-    private static void pollOnce(SpotifyClient spotify, TelegramClient telegram,
+    static void pollOnce(SpotifyClient spotify, TelegramClient telegram,
                                  StateManager stateManager, String playlistId) throws Exception {
         List<Track> tracks = spotify.getTracks(playlistId);
 
@@ -61,28 +87,38 @@ public class App {
             Track track = newState.get(trackId).track();
 
             for (int i = 0; i < entry.getValue(); i++) {
-                long messageId = telegram.sendMessage(PostFormatter.format(track));
-                stateManager.recordSentMessage(trackId, messageId);
+                try {
+                    long messageId = telegram.sendMessage(PostFormatter.format(track));
+                    stateManager.recordSentMessage(trackId, track, messageId);
+                } catch (java.io.IOException e) {
+                    System.err.println("Send failed for " + trackId + ": " + e.getMessage());
+                    break;
+                }
             }
         }
 
         for (var entry : diff.removedMessageIds().entrySet()) {
             for (long messageId : entry.getValue()) {
-                telegram.deleteMessage(messageId);
+                try {
+                    telegram.deleteMessage(messageId);
+                    stateManager.recordDeletedMessage(entry.getKey(), messageId);
+                } catch (java.io.IOException e) {
+                    System.err.println("Delete failed for message " + messageId + ": " + e.getMessage());
+                }
             }
         }
     }
 
     private static Map<String, TrackWithCount> groupByTrackId(List<Track> tracks) {
-        Map<String, Track> trackById = new HashMap<>();
-        Map<String, Integer> countById = new HashMap<>();
+        Map<String, Track> trackById = new LinkedHashMap<>();
+        Map<String, Integer> countById = new LinkedHashMap<>();
 
         for (Track track : tracks) {
             trackById.putIfAbsent(track.id(), track);
             countById.merge(track.id(), 1, Integer::sum);
         }
 
-        Map<String, TrackWithCount> result = new HashMap<>();
+        Map<String, TrackWithCount> result = new LinkedHashMap<>();
         for (String id : trackById.keySet()) {
             result.put(id, new TrackWithCount(trackById.get(id), countById.get(id)));
         }

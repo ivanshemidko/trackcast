@@ -2,7 +2,6 @@ package io.github.ivanshemidko.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.telegram.telegrambots.meta.api.objects.LinkPreviewOptions;
 
 import java.io.IOException;
 
@@ -88,6 +87,10 @@ public class TelegramClient {
                 .build();
 
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+
+        JsonNode deletionResult = mapper.readTree(response.body());
+        if (response.statusCode() == 400 && deletionResult.path("description").asText()
+                .equals("Bad Request: message to delete not found")) return;
 
         if (response.statusCode() != 200) {
             throw new IOException("Telegram API error: " + response.statusCode() + " " + response.body());
