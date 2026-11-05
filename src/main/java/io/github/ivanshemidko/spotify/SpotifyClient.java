@@ -10,6 +10,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.time.Duration;
@@ -23,20 +24,54 @@ public class SpotifyClient {
     private final String apiBase;
     private final SpotifyAuth auth;
     private final HttpClient http;
+    private final Path cacheFile;
     private final ObjectMapper mapper = new ObjectMapper();
+    private CachedPlaylist cached;
+    private int requestCount;
+
+    record CachedPlaylist(String playlistId, String snapshot, List<Track> tracks) {}
 
     public SpotifyClient(SpotifyAuth auth, HttpClient http) {
-        this(auth, http, "https://api.spotify.com/v1");
+        this(auth, http, "https://api.spotify.com/v1", null);
+    }
+
+    public SpotifyClient(SpotifyAuth auth, HttpClient http, Path cacheFile) {
+        this(auth, http, "https://api.spotify.com/v1", cacheFile);
     }
 
     SpotifyClient(SpotifyAuth auth, HttpClient http, String apiBase) {
+        this(auth, http, apiBase, null);
+    }
+
+    SpotifyClient(SpotifyAuth auth, HttpClient http, String apiBase, Path cacheFile) {
         this.apiBase = apiBase;
         this.auth = auth;
         this.http = http;
+        this.cacheFile = cacheFile;
+        if (cacheFile != null && Files.exists(cacheFile)) {
+            try {
+                CachedPlaylist saved = mapper.readValue(cacheFile.toFile(), CachedPlaylist.class);
+                if (saved == null || saved.playlistId() == null || saved.snapshot() == null
+                        || saved.snapshot().isBlank() || saved.tracks() == null
+                        || saved.tracks().stream().anyMatch(t -> t == null || t.id() == null
+                        || t.id().isBlank() || t.name() == null || t.artists() == null)) {
+                    throw new IOException("Invalid playlist cache");
+                }
+                cached = new CachedPlaylist(saved.playlistId(), saved.snapshot(), List.copyOf(saved.tracks()));
+            } catch (IOException e) {
+                // This is only a read cache. The authoritative Telegram message state is separate.
+                System.err.println("Spotify cache unreadable; will download playlist again: " + e.getMessage());
+            }
+        }
     }
 
     public List<Track> getTracks(String playlistId) throws IOException, InterruptedException {
+        requestCount = 0;
         String snapshot = snapshot(playlistId);
+        if (cached != null && playlistId.equals(cached.playlistId()) && snapshot.equals(cached.snapshot())) {
+            System.out.println("Spotify playlist unchanged; reused cache (" + requestCount + " API request)");
+            return cached.tracks();
+        }
         Integer expectedTotal = null;
         List<Track> allTracks = new ArrayList<>();
         int offset = 0;
@@ -69,7 +104,24 @@ public class SpotifyClient {
         }
 
         if (!snapshot.equals(snapshot(playlistId))) throw new IOException("Playlist changed while reading; retry next poll");
-        return allTracks;
+        CachedPlaylist next = new CachedPlaylist(playlistId, snapshot, List.copyOf(allTracks));
+        saveCache(next);
+        cached = next;
+        System.out.println("Spotify playlist loaded: " + allTracks.size() + " entries (" + requestCount + " API requests)");
+        return next.tracks();
+    }
+
+    private void saveCache(CachedPlaylist next) throws IOException {
+        if (cacheFile == null) return;
+        Path parent = cacheFile.toAbsolutePath().getParent();
+        Files.createDirectories(parent);
+        Path temp = Files.createTempFile(parent, ".spotify-cache-", ".tmp");
+        try {
+            mapper.writeValue(temp.toFile(), next);
+            Files.move(temp, cacheFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temp);
+        }
     }
 
     private JsonNode fetchPage(String playlistId, int offset) throws IOException, InterruptedException {
@@ -97,6 +149,7 @@ public class SpotifyClient {
                 .build();
 
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        requestCount++;
 
         if (response.statusCode() != 200) {
             if (response.statusCode() == 401) auth.invalidateAccessToken();

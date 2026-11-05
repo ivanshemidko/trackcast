@@ -5,6 +5,7 @@
 
 # Local Data & State
 spotify_token.json
+spotify_playlist_cache.json
 playlist_state.json
 
 # Build & IDE

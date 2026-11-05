@@ -49,7 +49,7 @@ public class App {
 
         SpotifyAuth auth = new SpotifyAuth(spotifyClientId, spotifyClientSecret, spotifyRedirectUri, dataDir.resolve("spotify_token.json"));
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
-        SpotifyClient spotify = new SpotifyClient(auth, http);
+        SpotifyClient spotify = new SpotifyClient(auth, http, dataDir.resolve("spotify_playlist_cache.json"));
         TelegramClient telegram = new TelegramClient(telegramBotToken, telegramChatId);
         StateManager stateManager = new StateManager(dataDir.resolve("playlist_state.json"));
         stateManager.loadState();
