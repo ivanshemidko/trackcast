@@ -31,6 +31,10 @@ class PostFormatterTest {
         assertEquals("frank ocean, earl sweatshirt – super rich kids", String.join(" ", labels(post)));
         assertTrue(labels(post).size() >= 3);
     }
+    @Test void fitsPlatinaAndSongOnFirstLine() throws Exception {
+        String post = PostFormatter.format(new Track("abc", "На Грязном (Диана)", List.of("Платина")));
+        assertEquals(List.of("платина – на грязном", "(диана)"), labels(post));
+    }
     @Test void linksContainNeitherNewlinesNorIndentation() throws Exception {
         String post = PostFormatter.format(new Track("abc", "Super Rich Kids", List.of("Frank Ocean", "Earl Sweatshirt")));
         var links = parse(post).getElementsByTagName("a");
@@ -46,7 +50,7 @@ class PostFormatterTest {
     }
     @Test void wrapsWideAndUnbrokenWordsEarlyAndLimitsHeight() throws Exception {
         for (String glyph : List.of("w", "щ", "界", "😀", "👨‍👩‍👧‍👦", "e\u0301")) {
-            String post = PostFormatter.format(new Track("abc", glyph.repeat(100), List.of("a")));
+            String post = PostFormatter.format(new Track("abc", glyph.repeat(160), List.of("a")));
             var lines = labels(post);
             assertTrue(lines.size() <= 6);
             assertTrue(lines.get(lines.size() - 1).endsWith("…"));
@@ -57,8 +61,8 @@ class PostFormatterTest {
                 assertFalse(line.endsWith("\u200D"));
                 assertFalse(line.startsWith("\u0301"));
             }
-            if (glyph.equals("w")) assertFalse(post.contains("w".repeat(10)));
-            if (glyph.equals("щ")) assertFalse(post.contains("щ".repeat(10)));
+            if (glyph.equals("w")) assertFalse(post.contains("w".repeat(11)));
+            if (glyph.equals("щ")) assertFalse(post.contains("щ".repeat(11)));
         }
     }
     @Test void escapesHtmlAndNormalizesWhitespace() throws Exception {

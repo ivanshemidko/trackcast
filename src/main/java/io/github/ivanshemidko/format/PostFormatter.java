@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
 public class PostFormatter {
     private static final int INDENT = 6;
     // Widths are estimated in spaces, with extra room for wide glyphs on mobile fonts.
-    private static final int MAX_LINE_WIDTH = 36;
+    private static final int MAX_LINE_WIDTH = 40;
     private static final int MAX_LINES = 6;
     private static final Pattern GRAPHEME = Pattern.compile("\\X");
     private static final String HEADER = " ".repeat(INDENT + 1) + "listen to";
@@ -86,9 +86,9 @@ public class PostFormatter {
             if (type == Character.NON_SPACING_MARK || type == Character.ENCLOSING_MARK
                     || type == Character.COMBINING_SPACING_MARK || type == Character.FORMAT) return 0;
             if (cp == ' ' || "il.,'!:;|".indexOf(cp) >= 0) return 1;
-            if (cp >= 0x1100 || "mw@%жщшмюы".indexOf(cp) >= 0) return 4;
-            if (Character.UnicodeScript.of(cp) == Character.UnicodeScript.CYRILLIC
-                    || cp == '&') return 3;
+            if (cp == '–') return 2;
+            if (cp >= 0x1100 || "mw@%жщшм".indexOf(cp) >= 0) return 4;
+            if ("дфцюы&".indexOf(cp) >= 0) return 3;
             return 2;
         }).max().orElse(0);
     }
