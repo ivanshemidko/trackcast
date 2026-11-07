@@ -1,29 +1,45 @@
 # Trackcast
 
-Публикует новые треки Spotify-плейлиста в Telegram и удаляет посты при удалении
-треков. Проверяет изменения раз в 30 минут, кэширует плейлист и соблюдает лимиты Spotify.
+Synchronizes a Spotify playlist with a Telegram channel: new tracks become linked
+posts, and removing tracks removes their corresponding posts. Duplicate entries
+are tracked separately.
 
-## Запуск
+Playlist snapshots are cached to avoid unnecessary downloads. Spotify rate-limit
+cooldowns and synchronization state persist across restarts. The first run without
+existing state establishes a baseline without publishing the entire playlist.
 
-1. Скопируйте `.env.example` в `.env` и заполните настройки.
-2. Получите `spotify_token.json` через `mvn compile exec:java`, затем остановите
-   локальный процесс. Положите токен в `data/`; при переносе существующего запуска
-   скопируйте туда и `playlist_state.json`.
-3. Укажите в `.env` значения `TRACKCAST_UID` / `TRACKCAST_GID` из `id -u` / `id -g`.
-   Каталог `data/` должен принадлежать этому пользователю и быть доступен на запись.
+## Configuration
+
+Create `.env` from [`.env.example`](.env.example).
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Bot token | Required |
+| `TELEGRAM_CHANNEL_ID` | Target channel ID | Required |
+| `SPOTIFY_CLIENT_ID` | Spotify application ID | Required |
+| `SPOTIFY_CLIENT_SECRET` | Spotify application secret | Required |
+| `SPOTIFY_PLAYLIST_ID` | Playlist to synchronize | Required |
+| `SPOTIFY_REDIRECT_URI` | OAuth callback URI | `http://127.0.0.1:8888/callback` |
+| `POLL_INTERVAL_SECONDS` | Playlist polling interval | `1800` |
+| `TRACKCAST_UID` / `TRACKCAST_GID` | Container user and group IDs | `10001` / `10001` |
+
+The bot needs permission to post and delete messages in the target channel.
+
+## Deployment
+
+Authorize Spotify locally using `mvn compile exec:java` (Java 17+ and Maven), then
+stop the process and place the generated `spotify_token.json` in `data/`. When
+migrating an existing instance, also transfer `playlist_state.json` to preserve
+message associations. Set `TRACKCAST_UID` and `TRACKCAST_GID` to the owner of the
+writable `data/` directory.
 
 ```sh
-docker compose up -d --build       # собрать и запустить
-docker compose logs --tail=100 -f  # журнал, выход — Ctrl+C
-docker compose restart            # перезапустить
-docker compose down               # остановить
+docker compose up -d --build
 ```
 
-Обновление: `git pull --ff-only && docker compose up -d --build`.
-Интервал: `POLL_INTERVAL_SECONDS` в `.env` (по умолчанию 1800).
-Храните `.env` и `data/`: в них настройки, токен, состояние и пауза Spotify.
-Резервные копии храните в `backups/` — эта папка исключена из Git.
-Без состояния первый запуск только запоминает плейлист. Новое оформление
-применяется к новым постам. Telegram обычно не позволяет удалять сообщения старше 48 часов.
+The `data/` bind mount stores authentication, playlist state, cache, and cooldowns.
+Preserve it across deployments.
 
-Проверки: `mvn clean verify`.
+## Development
+
+`mvn clean verify` builds the application and runs the test suite.
